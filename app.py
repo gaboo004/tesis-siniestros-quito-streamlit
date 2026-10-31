@@ -1,6 +1,8 @@
+
 import streamlit as st
 import pandas as pd
 import joblib
+import altair as alt
 from pathlib import Path
 
 st.set_page_config(
@@ -33,9 +35,7 @@ seccion = st.sidebar.radio(
     ["Análisis de siniestros", "Predicción de severidad"]
 )
 
-st.sidebar.caption(
-    "Trabajo de titulación · Datos 2022–2024"
-)
+st.sidebar.caption("Trabajo de titulación · Datos 2022–2024")
 
 if seccion == "Análisis de siniestros":
 
@@ -58,41 +58,127 @@ if seccion == "Análisis de siniestros":
         filtrados = filtrados[filtrados["AÑO"] == anio]
 
     if zona != "Todas":
-        filtrados = filtrados[
-            filtrados["ZONA_NOMBRE"] == zona
-        ]
+        filtrados = filtrados[filtrados["ZONA_NOMBRE"] == zona]
 
     total = len(filtrados)
     altas = (filtrados["SEVERIDAD"] == "ALTA").sum()
     porcentaje = altas / total * 100 if total else 0
 
     c1, c2, c3 = st.columns(3)
-
     c1.metric("Siniestros", f"{total:,}")
     c2.metric("Severidad ALTA", int(altas))
     c3.metric("Porcentaje ALTA", f"{porcentaje:.2f}%")
 
-    st.subheader("Distribución de severidad")
+    # =========================
+    # PREPARACIÓN DE TABLAS
+    # =========================
 
     conteos = (
         filtrados["SEVERIDAD"]
         .value_counts()
         .reindex(["BAJA", "MEDIA", "ALTA"], fill_value=0)
+        .reset_index()
     )
+    conteos.columns = ["Severidad", "Total"]
 
-    st.bar_chart(conteos)
-
-    st.caption(
-        "Resultados descriptivos de los registros históricos."
+    clases_df = (
+        filtrados["CLASE_NOMBRE"]
+        .value_counts()
+        .reset_index()
     )
+    clases_df.columns = ["Clase", "Total"]
+
+    causas_df = (
+        filtrados["CAUSA_NOMBRE"]
+        .value_counts()
+        .head(8)
+        .reset_index()
+    )
+    causas_df.columns = ["Causa", "Total"]
+
+    orden_dias = [
+        "LUNES", "MARTES", "MIÉRCOLES",
+        "JUEVES", "VIERNES", "SÁBADO", "DOMINGO"
+    ]
+
+    dias_df = (
+        filtrados["DIA_NOMBRE"]
+        .value_counts()
+        .reindex(orden_dias, fill_value=0)
+        .reset_index()
+    )
+    dias_df.columns = ["Día", "Total"]
+
+    # =========================
+    # GRÁFICOS
+    # =========================
+
+    col_g1, col_g2 = st.columns(2)
+
+    with col_g1:
+        st.subheader("Distribución de severidad")
+
+        grafico_pastel = alt.Chart(conteos).mark_arc(innerRadius=55).encode(
+            theta=alt.Theta(field="Total", type="quantitative"),
+            color=alt.Color(
+                field="Severidad",
+                type="nominal",
+                sort=["BAJA", "MEDIA", "ALTA"]
+            ),
+            tooltip=["Severidad", "Total"]
+        )
+
+        texto_pastel = alt.Chart(conteos).mark_text(radius=95, size=14).encode(
+            theta=alt.Theta(field="Total", type="quantitative"),
+            text=alt.Text(field="Total", type="quantitative")
+        )
+
+        st.altair_chart(grafico_pastel + texto_pastel, use_container_width=True)
+
+    with col_g2:
+        st.subheader("Siniestros por clase")
+
+        grafico_clases = alt.Chart(clases_df).mark_bar().encode(
+            x=alt.X("Total:Q", title="Número de siniestros"),
+            y=alt.Y("Clase:N", sort="-x", title="Clase de siniestro"),
+            tooltip=["Clase", "Total"]
+        )
+
+        st.altair_chart(grafico_clases, use_container_width=True)
+
+    col_g3, col_g4 = st.columns(2)
+
+    with col_g3:
+        st.subheader("Principales causas registradas")
+
+        grafico_causas = alt.Chart(causas_df).mark_bar().encode(
+            x=alt.X("Total:Q", title="Número de siniestros"),
+            y=alt.Y("Causa:N", sort="-x", title="Causa"),
+            tooltip=["Causa", "Total"]
+        )
+
+        st.altair_chart(grafico_causas, use_container_width=True)
+
+    with col_g4:
+        st.subheader("Siniestros por día de la semana")
+
+        grafico_dias = alt.Chart(dias_df).mark_bar().encode(
+            x=alt.X("Día:N", sort=orden_dias, title="Día"),
+            y=alt.Y("Total:Q", title="Número de siniestros"),
+            tooltip=["Día", "Total"]
+        )
+
+        st.altair_chart(grafico_dias, use_container_width=True)
+
+    st.caption("Resultados descriptivos de los registros históricos.")
 
 else:
 
     st.title("Predicción de severidad")
 
     st.write(
-        "Ingresa las características registradas "
-        "de un siniestro para estimar su severidad."
+        "Ingresa las características registradas de un siniestro "
+        "para estimar su severidad."
     )
 
     clases = {
@@ -139,8 +225,7 @@ else:
         with c2:
             zona = st.selectbox(
                 "Zona", [1, 2],
-                format_func=lambda x:
-                "Urbana" if x == 1 else "Rural"
+                format_func=lambda x: "Urbana" if x == 1 else "Rural"
             )
             clase = st.selectbox(
                 "Clase de siniestro", list(clases),
@@ -151,9 +236,7 @@ else:
                 format_func=lambda x: causas[x]
             )
 
-        enviar = st.form_submit_button(
-            "Estimar severidad"
-        )
+        enviar = st.form_submit_button("Estimar severidad")
 
     if enviar:
 
@@ -166,25 +249,20 @@ else:
             "CAUSA": causa
         }], columns=VARIABLES)
 
-        # Mantener los tipos del dataset utilizado
         for variable in VARIABLES:
-            entrada[variable] = entrada[variable].astype(
-                df[variable].dtype
-            )
+            entrada[variable] = entrada[variable].astype(df[variable].dtype)
 
         prediccion = cargar_modelo().predict(entrada)[0]
 
         st.success(f"Severidad estimada: {prediccion}")
 
         st.caption(
-            "Estimación del modelo basada en características "
-            "registradas; no equivale a una predicción "
-            "de la ocurrencia de accidentes."
+            "Estimación del modelo basada en características registradas; "
+            "no equivale a una predicción de la ocurrencia de accidentes."
         )
 
     st.info(
-        "El modelo tiene limitaciones de precisión, "
-        "especialmente para severidad ALTA. "
-        "No debe utilizarse como sistema autónomo "
-        "para tomar decisiones de seguridad vial."
+        "El modelo tiene limitaciones de precisión, especialmente para "
+        "severidad ALTA. No debe utilizarse como sistema autónomo para "
+        "tomar decisiones de seguridad vial."
     )
