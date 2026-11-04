@@ -1,5 +1,12 @@
-streamlit
-pandas
+# Python 3.12
+streamlit==1.66.1
+pandas==3.1.0
 scikit-learn==1.6.1
-joblib
-altair>=5,<7
+joblib==1.6.0
+altair==6.3.0
+# Numerical libraries verified with the serialized pipeline.
+numpy==2.5.4
+scipy==1.18.1
+# Keep Uvicorn above the fix for the WebSocket handshake with proxied headers.
+uvicorn==0.54.0
+websockets==17.4
