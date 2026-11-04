@@ -1,5 +1,9 @@
-streamlit
-pandas
+# Dependencias principales y compatibles con el entorno de prueba de la tesis.
+# Python 3.12 para Streamlit Community Cloud.
+streamlit==1.66.1
+pandas==2.2.3
 scikit-learn==1.6.1
-joblib
-altair>=5,<7
+joblib==1.6.0
+altair==6.3.0
+# Evitar pyarrow 26.0.1, que Community Cloud sustituyo por <25 en logs previos.
+pyarrow==24.0.0

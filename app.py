@@ -1,13 +1,14 @@
-
 import streamlit as st
 import pandas as pd
 import joblib
-import altair as alt
+from html import escape
+
+from figures import barras, donut
 from pathlib import Path
 
 st.set_page_config(
     page_title="Siniestros de Quito",
-    page_icon="🚗",
+    page_icon="◈",
     layout="wide"
 )
 
@@ -28,29 +29,63 @@ def cargar_modelo():
 
 df = cargar_datos()
 
-st.sidebar.title("Siniestros Quito")
+st.html(f"<style>{(BASE / 'estilos.css').read_text(encoding='utf-8')}</style>")
+
+
+def numero(valor):
+    return f"{valor:,}".replace(",", ".")
+
+
+def decimal(valor):
+    return f"{valor:.2f}".replace(".", ",")
+
+
+def encabezado(numero_modulo, titulo, descripcion):
+    st.html(
+        f'<p class="eyebrow">QUITO · INVESTIGACIÓN ACADÉMICA · {numero_modulo}</p>'
+        f'<h1 class="page-heading">{titulo}</h1>'
+        f'<p class="page-intro">{descripcion}</p>'
+    )
+
+
+AVISO = (
+    "La estimación de severidad está condicionada a las características de un siniestro "
+    "ya registrado o hipotético. No predice la ocurrencia de accidentes ni constituye consejo operativo."
+)
+
+
+with st.sidebar:
+    st.html('<div class="brand"><strong>Siniestros Quito</strong><span>Panel de investigación</span></div>')
 
 seccion = st.sidebar.radio(
     "Navegación",
     ["Análisis de siniestros", "Predicción de severidad"]
 )
 
-st.sidebar.caption("Trabajo de titulación · Datos 2022–2024")
+st.sidebar.divider()
+st.sidebar.markdown("**Distrito Metropolitano de Quito**")
+st.sidebar.caption("Registros históricos · 2022–2024")
+st.sidebar.caption("Trabajo de titulación · Aprendizaje automático")
+with st.sidebar.expander("Acerca del estudio"):
+    st.write(
+        "Análisis y predicción de la severidad de los siniestros de tránsito "
+        "en el Distrito Metropolitano de Quito mediante aprendizaje automático."
+    )
+    st.caption("Modelo Random Forest entrenado con datos de 2022–2023.")
 
 if seccion == "Análisis de siniestros":
 
-    st.title("Análisis de siniestros de tránsito")
-    st.write("Distrito Metropolitano de Quito · 2022–2024")
-
-    anio = st.selectbox(
-        "Selecciona el año",
-        ["Todos", 2022, 2023, 2024]
+    encabezado(
+        "01", "Análisis de siniestros",
+        "Una lectura descriptiva de los registros de tránsito del Distrito Metropolitano "
+        "de Quito. Explora su severidad, clase, causa y distribución semanal."
     )
 
-    zona = st.selectbox(
-        "Selecciona la zona",
-        ["Todas", "URBANA", "RURAL"]
-    )
+    with st.container(border=True):
+        st.markdown("**Delimita el análisis**")
+        filtro_anio, filtro_zona = st.columns(2)
+        anio = filtro_anio.selectbox("Selecciona el año", ["Todos", 2022, 2023, 2024])
+        zona = filtro_zona.selectbox("Selecciona la zona", ["Todas", "URBANA", "RURAL"])
 
     filtrados = df.copy()
 
@@ -64,10 +99,19 @@ if seccion == "Análisis de siniestros":
     altas = (filtrados["SEVERIDAD"] == "ALTA").sum()
     porcentaje = altas / total * 100 if total else 0
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Siniestros", f"{total:,}")
-    c2.metric("Severidad ALTA", int(altas))
-    c3.metric("Porcentaje ALTA", f"{porcentaje:.2f}%")
+    periodo = "2022–2024" if anio == "Todos" else str(anio)
+    zona_visible = "Todas las zonas" if zona == "Todas" else f"Zona {zona.lower()}"
+    st.caption(f"VISTA ACTUAL · {periodo} · {zona_visible}")
+    st.html(
+        '<div class="kpi-grid">'
+        f'<div class="kpi"><div class="kpi-label">Siniestros registrados</div>'
+        f'<div class="kpi-value">{numero(total)}</div><div class="kpi-detail">Registros en la selección</div></div>'
+        f'<div class="kpi kpi-high"><div class="kpi-label">Severidad ALTA</div>'
+        f'<div class="kpi-value">{numero(int(altas))}</div><div class="kpi-detail">Siniestros de severidad alta</div></div>'
+        f'<div class="kpi"><div class="kpi-label">Proporción de ALTA</div>'
+        f'<div class="kpi-value">{decimal(porcentaje)} %</div><div class="kpi-detail">Del total seleccionado</div></div>'
+        '</div>'
+    )
 
     # =========================
     # PREPARACIÓN DE TABLAS
@@ -109,77 +153,51 @@ if seccion == "Análisis de siniestros":
     )
     dias_df.columns = ["Día", "Total"]
 
-    # =========================
-    # GRÁFICOS
-    # =========================
+    # Porcentajes descriptivos calculados sobre la selección actual.
+    conteos["Porcentaje"] = conteos["Total"] / total * 100 if total else 0
+    conteos["Orden"] = range(len(conteos))
 
-    col_g1, col_g2 = st.columns(2)
-
-    with col_g1:
+    col_g1, col_g2 = st.columns(2, gap="large")
+    with col_g1, st.container(border=True):
         st.subheader("Distribución de severidad")
+        st.caption("Participación de cada categoría en la selección.")
+        st.altair_chart(donut(conteos), width="stretch", theme=None)
+        filas = []
+        for fila in conteos.itertuples(index=False):
+            filas.append(
+                f'<div class="severity-row"><span class="severity-label">'
+                f'<i class="dot dot-{fila.Severidad.lower()}" aria-hidden="true"></i>{fila.Severidad}</span>'
+                f'<span>{numero(fila.Total)}</span><strong>{decimal(fila.Porcentaje)} %</strong></div>'
+            )
+        st.html('<div class="severity-list">' + ''.join(filas) + '</div>')
 
-        grafico_pastel = alt.Chart(conteos).mark_arc(innerRadius=55).encode(
-            theta=alt.Theta(field="Total", type="quantitative"),
-            color=alt.Color(
-                field="Severidad",
-                type="nominal",
-                sort=["BAJA", "MEDIA", "ALTA"]
-            ),
-            tooltip=["Severidad", "Total"]
-        )
-
-        texto_pastel = alt.Chart(conteos).mark_text(radius=95, size=14).encode(
-            theta=alt.Theta(field="Total", type="quantitative"),
-            text=alt.Text(field="Total", type="quantitative")
-        )
-
-        st.altair_chart(grafico_pastel + texto_pastel, use_container_width=True)
-
-    with col_g2:
+    with col_g2, st.container(border=True):
         st.subheader("Siniestros por clase")
+        st.caption("Clases registradas, ordenadas por frecuencia.")
+        st.altair_chart(barras(clases_df, "Clase", alto=390), width="stretch", theme=None)
 
-        grafico_clases = alt.Chart(clases_df).mark_bar().encode(
-            x=alt.X("Total:Q", title="Número de siniestros"),
-            y=alt.Y("Clase:N", sort="-x", title="Clase de siniestro"),
-            tooltip=["Clase", "Total"]
-        )
+    col_g3, col_g4 = st.columns(2, gap="large")
+    with col_g3, st.container(border=True):
+        st.subheader("Principales causas")
+        st.caption("Las ocho causas más frecuentes de la selección.")
+        st.altair_chart(barras(causas_df, "Causa", alto=460), width="stretch", theme=None)
 
-        st.altair_chart(grafico_clases, use_container_width=True)
+    with col_g4, st.container(border=True):
+        st.subheader("Distribución semanal")
+        st.caption("Siniestros por día, de lunes a domingo.")
+        st.altair_chart(barras(dias_df, "Día", orden=orden_dias, alto=460), width="stretch", theme=None)
 
-    col_g3, col_g4 = st.columns(2)
-
-    with col_g3:
-        st.subheader("Principales causas registradas")
-
-        grafico_causas = alt.Chart(causas_df).mark_bar().encode(
-            x=alt.X("Total:Q", title="Número de siniestros"),
-            y=alt.Y("Causa:N", sort="-x", title="Causa"),
-            tooltip=["Causa", "Total"]
-        )
-
-        st.altair_chart(grafico_causas, use_container_width=True)
-
-    with col_g4:
-        st.subheader("Siniestros por día de la semana")
-
-        grafico_dias = alt.Chart(dias_df).mark_bar().encode(
-            x=alt.X("Día:N", sort=orden_dias, title="Día"),
-            y=alt.Y("Total:Q", title="Número de siniestros"),
-            tooltip=["Día", "Total"]
-        )
-
-        st.altair_chart(grafico_dias, use_container_width=True)
-
-    st.caption("Resultados descriptivos de los registros históricos.")
+    st.html(f'<div class="scope-note">{AVISO}</div>')
+    st.caption("Resultados descriptivos de los registros históricos. Los filtros se aplican a todos los indicadores y gráficos.")
 
 else:
 
-    st.title("Predicción de severidad")
-
-    st.write(
-        "Ingresa las características registradas de un siniestro "
-        "para estimar su severidad."
+    encabezado(
+        "02", "Predicción de severidad",
+        "Ingresa las características de un siniestro registrado o hipotético "
+        "para obtener la categoría de severidad estimada por el modelo Random Forest."
     )
+    st.html(f'<div class="scope-note">{AVISO}</div>')
 
     clases = {
         1: "Atropellos",
@@ -210,19 +228,28 @@ else:
         "Viernes", "Sábado", "Domingo"
     ]
 
+    meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    ]
+
     with st.form("formulario_siniestro"):
+        st.subheader("Características del siniestro")
+        st.caption("Completa los seis campos y selecciona Estimar severidad.")
 
         c1, c2 = st.columns(2)
 
         with c1:
-            mes = st.selectbox("Mes", range(1, 13))
+            st.markdown("**01 · Momento del siniestro**")
+            mes = st.selectbox("Mes", range(1, 13), format_func=lambda x: meses[x - 1])
             dia = st.selectbox(
                 "Día", range(1, 8),
                 format_func=lambda x: dias[x - 1]
             )
-            hora = st.selectbox("Hora", range(24))
+            hora = st.selectbox("Hora", range(24), format_func=lambda x: f"{x:02d}:00")
 
         with c2:
+            st.markdown("**02 · Zona y características**")
             zona = st.selectbox(
                 "Zona", [1, 2],
                 format_func=lambda x: "Urbana" if x == 1 else "Rural"
@@ -236,7 +263,7 @@ else:
                 format_func=lambda x: causas[x]
             )
 
-        enviar = st.form_submit_button("Estimar severidad")
+        enviar = st.form_submit_button("Estimar severidad", type="primary", width="stretch")
 
     if enviar:
 
@@ -254,15 +281,23 @@ else:
 
         prediccion = cargar_modelo().predict(entrada)[0]
 
-        st.success(f"Severidad estimada: {prediccion}")
-
-        st.caption(
-            "Estimación del modelo basada en características registradas; "
-            "no equivale a una predicción de la ocurrencia de accidentes."
+        categoria_resultado = str(prediccion)
+        estilo_resultado = categoria_resultado.lower() if categoria_resultado in ["BAJA", "MEDIA", "ALTA"] else ""
+        st.html(
+            f'<div class="result {estilo_resultado}" role="status">'
+            '<p class="eyebrow">RESULTADO DEL MODELO</p>'
+            f'<h2>Severidad estimada · {escape(categoria_resultado)}</h2>'
+            '<p>Estimación para las características enviadas en el formulario.</p></div>'
         )
+        st.caption(AVISO)
 
-    st.info(
-        "El modelo tiene limitaciones de precisión, especialmente para "
-        "severidad ALTA. No debe utilizarse como sistema autónomo para "
-        "tomar decisiones de seguridad vial."
+    st.warning(
+        "El modelo presenta un desempeño limitado, especialmente para severidad ALTA. "
+        "La estimación debe interpretarse dentro del alcance académico del estudio "
+        "y no debe utilizarse como sistema autónomo para tomar decisiones de seguridad vial."
     )
+
+st.html(
+    '<p class="footer-note">Trabajo de titulación · Distrito Metropolitano de Quito · '
+    'Datos 2022–2024</p>'
+)
